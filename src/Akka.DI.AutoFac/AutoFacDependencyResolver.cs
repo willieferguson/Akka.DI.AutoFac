@@ -12,6 +12,7 @@ using System.Runtime.CompilerServices;
 using Akka.Actor;
 using Akka.DI.Core;
 using Autofac;
+using System.Reflection;
 
 namespace Akka.DI.AutoFac
 {
@@ -25,7 +26,10 @@ namespace Akka.DI.AutoFac
         private ConcurrentDictionary<string, Type> typeCache;
         private ActorSystem system;
         private ConditionalWeakTable<ActorBase, ILifetimeScope> references;
+        private Assembly[] assemblies;
 
+
+#if !CORECLR
         /// <summary>
         /// Initializes a new instance of the <see cref="AutoFacDependencyResolver"/> class.
         /// </summary>
@@ -35,15 +39,37 @@ namespace Akka.DI.AutoFac
         /// Either the <paramref name="container"/> or the <paramref name="system"/> was null.
         /// </exception>
         public AutoFacDependencyResolver(ILifetimeScope container, ActorSystem system)
+            : this(container, system, AppDomain.CurrentDomain.GetAssemblies())
         {
             if (system == null) throw new ArgumentNullException("system");
             if (container == null) throw new ArgumentNullException("container");
             this.container = container;
-            typeCache = new ConcurrentDictionary<string, Type>(StringComparer.InvariantCultureIgnoreCase);
+            typeCache = new ConcurrentDictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
             this.system = system;
             this.system.AddDependencyResolver(this);
             this.references = new ConditionalWeakTable<ActorBase, ILifetimeScope>();
         }
+#endif
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AutoFacDependencyResolver"/> class.
+        /// </summary>
+        /// <param name="container">The container used to resolve references</param>
+        /// <param name="system">The actor system to plug into</param>
+        /// <exception cref="ArgumentNullException">
+        /// Either the <paramref name="container"/> or the <paramref name="system"/> was null.
+        /// </exception>
+        public AutoFacDependencyResolver(ILifetimeScope container, ActorSystem system, params Assembly[] assemblies)
+        {
+            if (system == null) throw new ArgumentNullException("system");
+            if (container == null) throw new ArgumentNullException("container");
+            this.container = container;
+            typeCache = new ConcurrentDictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
+            this.system = system;
+            this.system.AddDependencyResolver(this);
+            this.references = new ConditionalWeakTable<ActorBase, ILifetimeScope>();
+        }
+
 
         /// <summary>
         /// Retrieves an actor's type with the specified name
@@ -54,12 +80,12 @@ namespace Akka.DI.AutoFac
         {
             typeCache.
                 TryAdd(actorName,
-                       actorName.GetTypeValue() ??
+                       actorName.GetTypeValue(assemblies) ??
                        container.
                        ComponentRegistry.
                        Registrations.
                        Where(registration => registration.Activator.LimitType.
-                                 Name.Equals(actorName, StringComparison.InvariantCultureIgnoreCase)).
+                                 Name.Equals(actorName, StringComparison.OrdinalIgnoreCase)).
                         Select(registration => registration.Activator.LimitType).
                         FirstOrDefault());
 
